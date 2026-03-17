@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>🐯 TigerLotto Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Noto Sans Thai',sans-serif;background:#0A0A0A;color:#fff;min-height:100vh;display:flex;flex-direction:column}
+    :root{--gold:#FFD700;--gold2:#B8860B;--dark:#0A0A0A;--dark2:#0D0D0D;--dark3:#111;--green:#3BD441;--red:#D85A30;--blue:#78BAFF}
+    .app{display:flex;height:100vh;overflow:hidden}
+    /* SIDEBAR */
+    .sb{width:200px;background:var(--dark2);border-right:1px solid #1a1a1a;display:flex;flex-direction:column;flex-shrink:0}
+    .sb-brand{padding:14px;border-bottom:1px solid #1a1a1a;display:flex;align-items:center;gap:8px}
+    .sb-logo{width:32px;height:32px;background:linear-gradient(135deg,var(--gold),var(--gold2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;color:var(--dark)}
+    .sb-name{font-size:13px;font-weight:900;color:var(--gold)}
+    .sb-role{font-size:9px;color:#555}
+    .sb-nav{flex:1;overflow-y:auto;padding:6px 0}
+    .sb-nav::-webkit-scrollbar{width:0}
+    .sb-sec{font-size:9px;color:#333;padding:10px 14px 4px;text-transform:uppercase;letter-spacing:1px;font-weight:700}
+    .sb-item{display:flex;align-items:center;gap:8px;padding:9px 14px;color:#666;cursor:pointer;border-left:2px solid transparent;font-size:12px;font-weight:600;transition:all .15s}
+    .sb-item:hover{color:#ccc;background:#141414}
+    .sb-item.on{color:var(--gold);background:#1A1200;border-left-color:var(--gold)}
+    .sb-icon{font-size:13px;width:16px;text-align:center;flex-shrink:0}
+    .sb-badge{margin-left:auto;font-size:8px;padding:1px 5px;border-radius:6px;font-weight:700;background:var(--red);color:#fff}
+    /* MAIN */
+    .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+    .topbar{height:46px;background:var(--dark2);border-bottom:1px solid #1a1a1a;display:flex;align-items:center;justify-content:space-between;padding:0 16px;flex-shrink:0}
+    .tb-left{font-size:11px;color:#555}
+    .tb-left span{color:var(--gold);font-weight:700}
+    .content{flex:1;overflow-y:auto;padding:14px 16px}
+    .content::-webkit-scrollbar{width:4px}
+    .content::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px}
+    /* PAGES */
+    .page{display:none}.page.on{display:block}
+    .pg-title{font-size:15px;font-weight:900;color:var(--gold);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+    /* KPI */
+    .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+    .kpi{background:var(--dark3);border:1px solid #1e1e1e;border-radius:10px;padding:12px;position:relative;overflow:hidden}
+    .kpi-lbl{font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
+    .kpi-val{font-size:20px;font-weight:900;color:var(--gold)}
+    .kpi-sub{font-size:9px;color:var(--green);margin-top:2px}
+    .kpi-bar{position:absolute;bottom:0;left:0;right:0;height:2px}
+    /* CARD */
+    .card{background:var(--dark3);border:1px solid #1e1e1e;border-radius:10px;padding:12px;margin-bottom:10px}
+    .card-title{font-size:11px;font-weight:700;color:#ccc;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+    /* TABLE */
+    table{width:100%;border-collapse:collapse}
+    th{font-size:9px;color:#444;text-align:left;padding:5px 8px;border-bottom:1px solid #1a1a1a;text-transform:uppercase;white-space:nowrap}
+    td{font-size:11px;color:#aaa;padding:8px 8px;border-bottom:1px solid #0f0f0f;vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:#141414}
+    .badge{display:inline-block;padding:2px 7px;border-radius:6px;font-size:8px;font-weight:700}
+    .b-ok{background:#0a1a0a;color:var(--green);border:1px solid #3BD44133}
+    .b-pend{background:#1A1200;color:var(--gold);border:1px solid #FFD70033}
+    .b-fail{background:#1a0a0a;color:var(--red);border:1px solid #D85A3033}
+    /* FORM */
+    .finput{width:100%;height:40px;background:var(--dark);border:1.5px solid #FFD70033;border-radius:8px;color:#fff;font-size:13px;padding:0 12px;font-family:inherit;outline:none;margin-bottom:10px}
+    .finput:focus{border-color:var(--gold)}
+    /* TOAST */
+    #toast{position:fixed;top:14px;left:50%;transform:translateX(-50%) translateY(-12px);background:#1A3A1A;border:2px solid var(--green);color:var(--green);padding:8px 20px;border-radius:10px;font-size:12px;font-weight:700;z-index:999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap}
+    #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+    #toast.err{background:#3A0000;border-color:var(--red);color:var(--red)}
+    #toast.w{background:#3A1A00;border-color:var(--gold);color:var(--gold)}
+    @media(max-width:640px){.sb{display:none}.kpi-grid{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sb">
+    <div class="sb-brand">
+      <div class="sb-logo">🐯</div>
+      <div><div class="sb-name">TigerLotto</div><div class="sb-role">Admin Panel</div></div>
+    </div>
+    <nav class="sb-nav" id="sbNav"></nav>
+  </div>
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="tb-left">Admin / <span id="tbCrumb">Dashboard</span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:9px;padding:2px 8px;border-radius:6px;background:#0a1a0a;color:var(--green);border:1px solid #3BD44133;font-weight:700">● Live</span>
+        <button onclick="doLogout()" style="padding:4px 10px;border-radius:6px;background:#1a0a0a;border:1px solid #D85A3033;color:var(--red);font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">ออก</button>
+      </div>
+    </div>
+    <div class="content" id="mainContent"></div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="js/api.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>
