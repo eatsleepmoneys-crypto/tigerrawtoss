@@ -1,14 +1,9 @@
-/**
- * migrate.js — Railway auto-migration on deploy
- * รันอัตโนมัติหลัง deploy: สร้าง schema + seed ข้อมูลเริ่มต้น
- */
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
-const mysql  = require('mysql2/promise');
-const fs     = require('fs');
-const path   = require('path');
+const mysql = require('mysql2/promise');
+const fs    = require('fs');
+const path  = require('path');
 
 async function migrate() {
-  // Railway inject env as MYSQLHOST etc. — support both naming conventions
   const cfg = {
     host:     process.env.MYSQLHOST     || process.env.DB_HOST,
     port:     parseInt(process.env.MYSQLPORT || process.env.DB_PORT || 3306),
@@ -17,22 +12,24 @@ async function migrate() {
     database: process.env.MYSQLDATABASE || process.env.DB_NAME,
     multipleStatements: true,
     ssl: { rejectUnauthorized: false },
+    connectTimeout: 20000,
   };
 
   console.log('[migrate] Connecting to', cfg.host + ':' + cfg.port);
   const conn = await mysql.createConnection(cfg);
   console.log('[migrate] Connected');
 
-  const [tables] = await conn.execute(
-    "SELECT COUNT(*) AS c FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'users'"
+  const [rows] = await conn.execute(
+    "SELECT COUNT(*) AS c FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='users'"
   );
 
-  if (tables[0].c === 0) {
+  if (rows[0].c === 0) {
     console.log('[migrate] Fresh database — running schema...');
-    const schemaPath = path.join(__dirname, '../../tigerlotto_schema.sql');
-    const schema = fs.readFileSync(schemaPath, 'utf8');
+    const schema = fs.readFileSync(
+      path.join(__dirname, '../../tigerlotto_schema.sql'), 'utf8'
+    );
     await conn.query(schema);
-    console.log('[migrate] Schema created ✅');
+    console.log('[migrate] Schema created');
     await seedData(conn);
   } else {
     console.log('[migrate] Database exists — running hardening patch...');
@@ -44,102 +41,104 @@ async function migrate() {
 }
 
 async function seedData(conn) {
-  const now = new Date();
+  const now   = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}`;
 
+  // system_settings — ตรง schema: key, value, type, group_name, description
   await conn.execute(`
-    INSERT IGNORE INTO system_settings (\`key\`, value, group_name, description) VALUES
-    ('bonus_welcome',    '50',    'wallet', 'โบนัสต้อนรับ'),
-    ('min_deposit',      '100',   'wallet', 'ฝากขั้นต่ำ'),
-    ('max_deposit',      '100000','wallet', 'ฝากสูงสุด'),
-    ('min_withdraw',     '100',   'wallet', 'ถอนขั้นต่ำ'),
-    ('max_withdraw',     '50000', 'wallet', 'ถอนสูงสุด'),
-    ('cancel_window_mins','30',   'lottery','นาทีที่ยกเลิกโพยได้'),
-    ('commission_l1',    '0.01',  'agent',  'Commission L1'),
-    ('commission_l2',    '0.005', 'agent',  'Commission L2'),
-    ('commission_l3',    '0.003', 'agent',  'Commission L3')
+    INSERT IGNORE INTO system_settings (\`key\`, value, type, group_name, description) VALUES
+    ('bonus_welcome',    '50',    'decimal', 'promo',   'โบนัสต้อนรับ'),
+    ('min_deposit',      '100',   'decimal', 'payment', 'ฝากขั้นต่ำ'),
+    ('max_deposit',      '100000','decimal', 'payment', 'ฝากสูงสุด'),
+    ('min_withdraw',     '100',   'decimal', 'payment', 'ถอนขั้นต่ำ'),
+    ('max_withdraw',     '50000', 'decimal', 'payment', 'ถอนสูงสุด'),
+    ('cancel_window_mins','30',   'integer', 'betting', 'นาทีที่ยกเลิกโพยได้'),
+    ('commission_l1',    '0.01',  'decimal', 'agent',   'Commission L1'),
+    ('commission_l2',    '0.005', 'decimal', 'agent',   'Commission L2'),
+    ('commission_l3',    '0.003', 'decimal', 'agent',   'Commission L3'),
+    ('maintenance_mode', '0',     'boolean', 'system',  'Maintenance mode'),
+    ('auto_deposit',     '1',     'boolean', 'payment', 'รับฝากอัตโนมัติ')
   `);
 
+  // lottery_types — schema: code, name, icon, rounds_per_day, sort_order
   await conn.execute(`
-    INSERT IGNORE INTO lottery_types (code,name,icon,description,payout_config,is_active,sort_order) VALUES
-    ('gov',   'หวยรัฐบาล','🇹🇭','ออกวันที่ 1 และ 16 ทุกเดือน','{}',1,1),
-    ('yeekee','ยี่กี 24ชม.','⚡','90 รอบต่อวัน','{}',1,2),
-    ('hanoi', 'หวยฮานอย','🌏','ออกทุกวัน 17:30','{}',1,3),
-    ('laos',  'หวยลาว','🇱🇦','ออกทุกวัน 20:00','{}',1,4),
-    ('set',   'หุ้น SET','📈','เช้า+บ่าย','{}',1,5)
+    INSERT IGNORE INTO lottery_types (code, name, icon, rounds_per_day, sort_order) VALUES
+    ('gov',   'หวยรัฐบาล',   '🇹🇭', 2,  1),
+    ('yeekee','ยี่กี 24ชม.',  '⚡',  90, 2),
+    ('hanoi', 'หวยฮานอย',    '🌏',  1,  3),
+    ('laos',  'หวยลาว',      '🇱🇦', 1,  4),
+    ('set',   'หุ้น SET',    '📈',  2,  5)
   `);
 
+  // bet_types — schema: lottery_type_id, code, name, digits, payout_rate, max_bet
   await conn.execute(`
-    INSERT IGNORE INTO bet_types (lottery_type_id,code,name,description,digit_count,payout_rate,min_bet,max_bet,is_active) VALUES
-    (1,'3_top',  '3 ตัวบน',  '3 ตัวบน',  3,900,1,5000,1),
-    (1,'3_bot',  '3 ตัวท้าย','3 ตัวท้าย',3,450,1,5000,1),
-    (1,'3_front','3 ตัวหน้า','3 ตัวหน้า',3,550,1,5000,1),
-    (1,'3_tod',  '3 ตัวโต๊ด','3 ตัวโต๊ด',3,150,1,5000,1),
-    (1,'2_top',  '2 ตัวบน',  '2 ตัวบน',  2, 96,1,5000,1),
-    (1,'2_bot',  '2 ตัวล่าง','2 ตัวล่าง', 2, 96,1,5000,1),
-    (1,'run_top','วิ่งบน',   'วิ่งบน',    1,  3,1,5000,1),
-    (1,'run_bot','วิ่งล่าง', 'วิ่งล่าง',  1,  3,1,5000,1)
+    INSERT IGNORE INTO bet_types (lottery_type_id, code, name, digits, payout_rate, min_bet, max_bet) VALUES
+    (1,'3_top',  '3 ตัวบน',  3, 750.00, 1, 5000),
+    (1,'3_bot',  '3 ตัวล่าง',3, 450.00, 1, 5000),
+    (1,'3_tod',  '3 โต๊ด',   3, 120.00, 1,10000),
+    (1,'3_front','3 ตัวหน้า',3, 550.00, 1, 5000),
+    (1,'2_top',  '2 ตัวบน',  2,  75.00, 1, 5000),
+    (1,'2_bot',  '2 ตัวล่าง',2,  75.00, 1, 5000),
+    (1,'run_top','วิ่งบน',    1,   3.20, 1,20000),
+    (1,'run_bot','วิ่งล่าง',  1,   4.20, 1,20000)
+  `);
+  await conn.execute(`
+    INSERT IGNORE INTO bet_types (lottery_type_id, code, name, digits, payout_rate, min_bet, max_bet)
+    SELECT lt.id, bt.code, bt.name, bt.digits, ROUND(bt.payout_rate*0.9,2), bt.min_bet, bt.max_bet
+    FROM bet_types bt, lottery_types lt
+    WHERE bt.lottery_type_id=1 AND lt.code IN ('yeekee','hanoi','laos','set')
   `);
 
-  for (const ltId of [2,3,4,5]) {
-    await conn.execute(`
-      INSERT IGNORE INTO bet_types (lottery_type_id,code,name,description,digit_count,payout_rate,min_bet,max_bet,is_active)
-      SELECT ${ltId},code,name,description,digit_count,ROUND(payout_rate*0.85),min_bet,max_bet,is_active
-      FROM bet_types WHERE lottery_type_id=1
-    `);
-  }
-
-  const closeAt7 = new Date(now.getTime() + 7*24*60*60*1000).toISOString().slice(0,19).replace('T',' ');
-  const closeAt3d = new Date(now.getTime() + 3*24*60*60*1000).toISOString().slice(0,19).replace('T',' ');
-  const closeAt15m = new Date(now.getTime() + 15*60*1000).toISOString().slice(0,19).replace('T',' ');
-  const nowStr = now.toISOString().slice(0,19).replace('T',' ');
-
+  // สร้าง round เปิดรับ
+  const c7d = new Date(now.getTime()+7*864e5).toISOString().slice(0,19).replace('T',' ');
+  const c3d = new Date(now.getTime()+3*864e5).toISOString().slice(0,19).replace('T',' ');
+  const c15m= new Date(now.getTime()+15*6e4).toISOString().slice(0,19).replace('T',' ');
+  const ns  = now.toISOString().slice(0,19).replace('T',' ');
   await conn.execute(`
-    INSERT IGNORE INTO lottery_rounds (lottery_type_id,round_code,open_at,close_at,draw_at,status) VALUES
-    (1,'GOV-${yyyymm}01','${nowStr}','${closeAt7}','${closeAt7}','open'),
-    (2,'YEEKEE-${Date.now()}','${nowStr}','${closeAt15m}','${closeAt15m}','open'),
-    (3,'HANOI-${yyyymm}','${nowStr}','${closeAt3d}','${closeAt3d}','open')
+    INSERT IGNORE INTO lottery_rounds (lottery_type_id, round_code, open_at, close_at, draw_at, status)
+    VALUES
+      (1,'GOV-${yyyymm}01','${ns}','${c7d}','${c7d}','open'),
+      (2,'YEEKEE-${Date.now()}','${ns}','${c15m}','${c15m}','open'),
+      (3,'HANOI-${yyyymm}','${ns}','${c3d}','${c3d}','open')
   `);
 
+  // promotions
   await conn.execute(`
     INSERT IGNORE INTO promotions (code,name,description,type,value,min_deposit,max_amount,is_active,is_featured) VALUES
-    ('WELCOME50','โบนัสต้อนรับ ฿50','สมัครใหม่รับโบนัส ฿50 ทันที','bonus','฿50 ฟรี',0,50,1,1),
-    ('DEPOSIT10','โบนัสฝาก 10%','ฝากครั้งแรกรับโบนัส 10%','deposit','+10%',100,500,1,0)
+    ('WELCOME50','โบนัสต้อนรับ ฿50','สมัครใหม่รับ ฿50 ทันที','bonus','฿50',0,50,1,1)
   `);
 
+  // Admin user
   const bcrypt = require('bcryptjs');
   const { v4: uuidv4 } = require('uuid');
   const hash = await bcrypt.hash('Admin@1234', 12);
-  const adminUuid = uuidv4();
   await conn.execute(`
     INSERT IGNORE INTO users (uuid,phone,password_hash,first_name,last_name,referral_code,role,vip_tier,is_active,is_verified,token_version)
     VALUES (?,?,?,?,?,?,'admin','diamond',1,1,0)
-  `, [adminUuid, '0899999999', hash, 'Admin', 'TigerLotto', 'ADMIN001']);
-
+  `, [uuidv4(), '0899999999', hash, 'Admin', 'TigerLotto', 'ADMIN001']);
   await conn.execute(`
-    INSERT IGNORE INTO wallets (user_id,balance) SELECT id,0 FROM users WHERE phone='0899999999'
+    INSERT IGNORE INTO wallets (user_id,balance)
+    SELECT id,0 FROM users WHERE phone='0899999999'
   `);
 
   console.log('[migrate] Seed complete');
-  console.log('[migrate] 🔑 Admin login: 0899999999 / Admin@1234');
-  console.log('[migrate] ⚠️  เปลี่ยนรหัสผ่าน Admin ทันทีหลัง login!');
+  console.log('[migrate] Admin: 0899999999 / Admin@1234  ← เปลี่ยนทันที!');
 }
 
 async function hardenSchema(conn) {
   const patches = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0",
     "CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id)",
-    "CREATE INDEX IF NOT EXISTS idx_tx_type_status ON transactions(type,status)",
     "CREATE INDEX IF NOT EXISTS idx_slips_user ON slips(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id,is_read)",
-    "CREATE INDEX IF NOT EXISTS idx_otp_phone ON otp_logs(phone,created_at)",
-    `INSERT IGNORE INTO system_settings (\`key\`,value,group_name,description) VALUES
-     ('min_deposit','100','wallet','ฝากขั้นต่ำ'),
-     ('max_deposit','100000','wallet','ฝากสูงสุด')`
+    `INSERT IGNORE INTO system_settings (\`key\`,value,type,group_name,description) VALUES
+     ('min_deposit','100','decimal','payment','ฝากขั้นต่ำ'),
+     ('max_deposit','100000','decimal','payment','ฝากสูงสุด'),
+     ('bonus_welcome','50','decimal','promo','โบนัสต้อนรับ')`
   ];
   for (const sql of patches) {
-    try { await conn.execute(sql); } catch(e) { /* already exists */ }
+    try { await conn.execute(sql); } catch {}
   }
 }
 
-migrate().catch(e => { console.error('[migrate] FATAL:', e.message); process.exit(1); });
+migrate().catch(e => { console.error('[migrate] FATAL:', e.message); });
